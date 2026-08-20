@@ -143,6 +143,12 @@ class RcnTransportModule : Module() {
       val deviceId = parts.getOrNull(0)?.takeIf { it.length == 32 } ?: return
       val displayName = parts.getOrNull(1).orEmpty()
 
+      // Observed on device: our own advertisement can come back through the BLE
+      // medium while we both advertise and discover. Nearby is not documented to
+      // do this, which is the reason to filter here rather than trust it not to —
+      // a device listing itself as a peer would corrupt the peer model.
+      if (deviceId == localDeviceId) return
+
       endpointByDevice[deviceId] = endpointId
       deviceByEndpoint[endpointId] = deviceId
       sendEvent(

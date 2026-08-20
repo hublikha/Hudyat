@@ -63,11 +63,19 @@ function DeveloperScreen() {
       },
       peerLost: (lost) => {
         setPeers((prev) => {
+          const existing = prev[lost];
+          // peerLost means "no longer advertising", which Nearby reports as a
+          // matter of course once a peer connects. Dropping a connected peer
+          // here would report it unreachable while the link is still carrying
+          // traffic. Discovery and reachability are separate questions.
+          if (existing && existing.connection === 'CONNECTED') {
+            return prev;
+          }
           const next = { ...prev };
           delete next[lost];
           return next;
         });
-        append(`lost ${short(lost)}`);
+        append(`undiscovered ${short(lost)}`);
       },
       peerConnectionChanged: (id, connection) => {
         setPeers((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id]!, connection } } : prev));
