@@ -79,6 +79,13 @@ class RcnTransportModule : Module() {
       )
         .addOnSuccessListener { emitState("READY") }
         .addOnFailureListener { emitState("ERROR", "discovery failed: ${it.message}") }
+
+      // Every AsyncFunction here must end in Unit. A Play Services call returns a
+      // Task, Kotlin returns the last expression implicitly, and the bridge then
+      // tries to serialize it and rejects the promise with "Unknown type: class
+      // com.google.android.gms.tasks.zzw". Nearby still starts, so the failure
+      // shows up as a rejected call rather than a broken transport.
+      Unit
     }
 
     AsyncFunction("stop") {
@@ -101,6 +108,7 @@ class RcnTransportModule : Module() {
       emitConnection(deviceId, "CONNECTING")
       client.requestConnection(local, endpoint, connectionLifecycle)
         .addOnFailureListener { emitConnection(deviceId, "DISCONNECTED") }
+      Unit
     }
 
     AsyncFunction("disconnect") { deviceId: String ->
@@ -117,6 +125,7 @@ class RcnTransportModule : Module() {
       }
       val bytes = Base64.decode(frameBase64, Base64.NO_WRAP)
       client.sendPayload(endpoint, Payload.fromBytes(bytes))
+      Unit
     }
   }
 
