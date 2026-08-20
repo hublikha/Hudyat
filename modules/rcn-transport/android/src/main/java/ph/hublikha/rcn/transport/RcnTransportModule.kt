@@ -158,9 +158,19 @@ class RcnTransportModule : Module() {
     }
 
     override fun onEndpointLost(endpointId: String) {
-      val deviceId = deviceByEndpoint.remove(endpointId) ?: return
+      val deviceId = deviceByEndpoint[endpointId] ?: return
+
+      // Nearby stops advertising a peer once it connects, so this fires during
+      // normal operation on a healthy link. Dropping the endpoint mapping here
+      // made send() fail with "No endpoint" on a connection that was still open.
+      // Losing discovery is not losing the peer; only onDisconnected is.
+      if (connected.contains(deviceId)) {
+        sendEvent("onPeerLost", mapOf("deviceId" to deviceId))
+        return
+      }
+
+      deviceByEndpoint.remove(endpointId)
       endpointByDevice.remove(deviceId)
-      connected.remove(deviceId)
       sendEvent("onPeerLost", mapOf("deviceId" to deviceId))
     }
   }
