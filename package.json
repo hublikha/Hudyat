@@ -1,0 +1,17 @@
+{
+  "name": "hudyat-rcn",
+  "version": "0.1.0",
+  "description": "RCN - Resilient Communications Network. Local-first family communications.",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace=@rcn/protocol",
+    "build": "npm run build --workspace=@rcn/protocol"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

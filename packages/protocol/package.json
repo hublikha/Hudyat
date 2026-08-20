@@ -1,0 +1,16 @@
+{
+  "name": "@rcn/protocol",
+  "version": "0.1.0",
+  "description": "RCN Protocol - Message envelope, serialization, and device identity contract",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test \"dist/**/*.test.js\"",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^5.9.3"
+  }
+}
