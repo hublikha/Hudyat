@@ -1,5 +1,6 @@
 import { MAX_PAYLOAD_BYTES, PROTOCOL_VERSION, PacketType } from './constants';
 import { DeviceId, MessageId, isDeviceId, isMessageId } from './ids';
+import { utf8ByteLength } from './utf8';
 
 /**
  * Phase 0 envelope. Fields are plaintext by design — the spike proves transport
@@ -80,7 +81,7 @@ export function validateEnvelope(value: unknown): asserts value is Envelope {
   if (typeof e.payload !== 'string') {
     throw new EnvelopeValidationError('payload', 'must be a string');
   }
-  if (new TextEncoder().encode(e.payload).byteLength > MAX_PAYLOAD_BYTES) {
+  if (utf8ByteLength(e.payload) > MAX_PAYLOAD_BYTES) {
     throw new EnvelopeValidationError('payload', `exceeds ${MAX_PAYLOAD_BYTES} bytes`);
   }
 }

@@ -20,7 +20,20 @@ interface NativeModule {
   addListener(event: string, handler: (payload: any) => void): { remove(): void };
 }
 
-const native = requireNativeModule<NativeModule>('RcnTransport');
+let cachedNative: NativeModule | null = null;
+
+/**
+ * Resolved on first use rather than at import. `requireNativeModule` throws when
+ * the module is not registered, and at import time that kills the app before
+ * React can render — which on a release build is a silent close with no way to
+ * see why. Deferring it turns that failure into a message on screen.
+ */
+function getNative(): NativeModule {
+  if (cachedNative === null) {
+    cachedNative = requireNativeModule<NativeModule>('RcnTransport');
+  }
+  return cachedNative;
+}
 
 const RECOVERABLE_CODES = new Set(['ERR_NOT_CONNECTED', 'ERR_UNKNOWN_PEER']);
 
@@ -50,7 +63,7 @@ export class NearbyTransport implements Transport {
       this.#attachNativeListeners();
     }
     try {
-      await native.start(localDeviceId, displayName);
+      await getNative().start(localDeviceId, displayName);
     } catch (error) {
       this.#setState('ERROR', String(error));
       throw wrap(error);
@@ -59,7 +72,7 @@ export class NearbyTransport implements Transport {
 
   async stop(): Promise<void> {
     try {
-      await native.stop();
+      await getNative().stop();
     } finally {
       for (const sub of this.#subscriptions) {
         sub.remove();
@@ -71,7 +84,7 @@ export class NearbyTransport implements Transport {
 
   async connect(deviceId: DeviceId): Promise<void> {
     try {
-      await native.connect(deviceId);
+      await getNative().connect(deviceId);
     } catch (error) {
       throw wrap(error);
     }
@@ -79,7 +92,7 @@ export class NearbyTransport implements Transport {
 
   async disconnect(deviceId: DeviceId): Promise<void> {
     try {
-      await native.disconnect(deviceId);
+      await getNative().disconnect(deviceId);
     } catch (error) {
       throw wrap(error);
     }
@@ -87,7 +100,7 @@ export class NearbyTransport implements Transport {
 
   async send(deviceId: DeviceId, frame: Uint8Array): Promise<void> {
     try {
-      await native.send(deviceId, toBase64(frame));
+      await getNative().send(deviceId, toBase64(frame));
     } catch (error) {
       throw wrap(error);
     }
@@ -115,22 +128,22 @@ export class NearbyTransport implements Transport {
 
   #attachNativeListeners(): void {
     this.#subscriptions = [
-      native.addListener('onStateChanged', (e: { state: TransportState; detail?: string }) => {
+      getNative().addListener('onStateChanged', (e: { state: TransportState; detail?: string }) => {
         this.#setState(e.state, e.detail);
       }),
-      native.addListener('onPeerFound', (peer: Peer) => {
+      getNative().addListener('onPeerFound', (peer: Peer) => {
         this.#emit('peerFound', peer);
       }),
-      native.addListener('onPeerLost', (e: { deviceId: DeviceId }) => {
+      getNative().addListener('onPeerLost', (e: { deviceId: DeviceId }) => {
         this.#emit('peerLost', e.deviceId);
       }),
-      native.addListener(
+      getNative().addListener(
         'onPeerConnectionChanged',
         (e: { deviceId: DeviceId; state: PeerConnectionState }) => {
           this.#emit('peerConnectionChanged', e.deviceId, e.state);
         },
       ),
-      native.addListener('onFrameReceived', (e: { from: DeviceId; frame: string }) => {
+      getNative().addListener('onFrameReceived', (e: { from: DeviceId; frame: string }) => {
         this.#emit('frameReceived', e.from, fromBase64(e.frame));
       }),
     ];

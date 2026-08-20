@@ -107,3 +107,22 @@ test('distinct packet types produce distinct bytes', () => {
   const pong: Envelope = { ...PING_A_TO_B, type: PacketType.TEST_PONG };
   assert.notDeepEqual(encodeEnvelope(pong), encodeEnvelope(PING_A_TO_B));
 });
+
+test('encodes and decodes with no platform TextEncoder present', () => {
+  const savedEncoder = globalThis.TextEncoder;
+  const savedDecoder = globalThis.TextDecoder;
+  // Hermes provides neither, and Node providing them is exactly why this gap
+  // reached a device once. Removing them here keeps the suite honest.
+  // @ts-expect-error - deliberately removing a global for the duration of the test
+  delete globalThis.TextEncoder;
+  // @ts-expect-error - see above
+  delete globalThis.TextDecoder;
+  try {
+    const envelope: Envelope = { ...PING_A_TO_B, payload: 'ligtas ako \ud83d\udea8' };
+    assert.deepEqual(decodeEnvelope(encodeEnvelope(envelope)), envelope);
+    assert.equal(decoder.decode(encodeEnvelope(PING_A_TO_B)), PING_A_TO_B_CANONICAL);
+  } finally {
+    globalThis.TextEncoder = savedEncoder;
+    globalThis.TextDecoder = savedDecoder;
+  }
+});

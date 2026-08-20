@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -33,7 +33,7 @@ interface LogEntry {
 
 type PeerRow = Peer & { connection: PeerConnectionState };
 
-export default function App() {
+function DeveloperScreen() {
   const transport = useMemo(() => new NearbyTransport(), []);
   const [deviceId, setDeviceId] = useState<DeviceId | null>(null);
   const [state, setState] = useState<TransportState>('STOPPED');
@@ -46,8 +46,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadOrCreateDeviceId().then(setDeviceId);
-  }, []);
+    loadOrCreateDeviceId().then(setDeviceId, (error: unknown) => {
+      append(`identity failed: ${(error as Error).message}`);
+    });
+  }, [append]);
 
   useEffect(() => {
     return transport.subscribe({
@@ -116,7 +118,13 @@ export default function App() {
       append(`permission denied: ${permission.denied.join(', ')}`);
       return;
     }
-    await transport.start(deviceId, `rcn-${short(deviceId)}`);
+    try {
+      await transport.start(deviceId, `rcn-${short(deviceId)}`);
+    } catch (error) {
+      // Includes the case where the native module is not registered at all,
+      // which would otherwise be an unhandled rejection and no visible cause.
+      append(`start failed: ${(error as Error).message}`);
+    }
   }, [deviceId, transport, append]);
 
   const running = state === 'READY' || state === 'STARTING';
@@ -183,6 +191,43 @@ export default function App() {
         </Section>
       </ScrollView>
     </View>
+  );
+}
+
+
+/**
+ * Without this, any render-time throw closes a release build with no message —
+ * the user sees "has stopped" and there is nothing to act on.
+ */
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  override render() {
+    const { error } = this.state;
+    if (!error) {
+      return this.props.children;
+    }
+    return (
+      <View style={styles.root}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.title}>Startup failed</Text>
+          <Text style={styles.warning}>{error.message}</Text>
+          <Text style={styles.logLine}>{error.stack ?? 'no stack available'}</Text>
+        </ScrollView>
+      </View>
+    );
+  }
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <DeveloperScreen />
+    </ErrorBoundary>
   );
 }
 

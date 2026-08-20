@@ -1,4 +1,5 @@
 import { Envelope, ENVELOPE_FIELD_ORDER, validateEnvelope } from './envelope';
+import { Utf8Error, utf8Decode, utf8Encode } from './utf8';
 
 /**
  * Canonical serialization. Fields are emitted in `ENVELOPE_FIELD_ORDER` with no
@@ -11,7 +12,7 @@ export function encodeEnvelope(envelope: Envelope): Uint8Array {
   const parts = ENVELOPE_FIELD_ORDER.map(
     (key) => `${JSON.stringify(key)}:${JSON.stringify(envelope[key])}`,
   );
-  return new TextEncoder().encode(`{${parts.join(',')}}`);
+  return utf8Encode(`{${parts.join(',')}}`);
 }
 
 export class DecodeError extends Error {
@@ -24,9 +25,10 @@ export class DecodeError extends Error {
 export function decodeEnvelope(bytes: Uint8Array): Envelope {
   let text: string;
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch {
-    throw new DecodeError('payload is not valid UTF-8');
+    text = utf8Decode(bytes);
+  } catch (error) {
+    const detail = error instanceof Utf8Error ? `: ${error.message}` : '';
+    throw new DecodeError(`payload is not valid UTF-8${detail}`);
   }
 
   let parsed: unknown;
