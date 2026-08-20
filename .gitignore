@@ -25,3 +25,6 @@ yarn-error.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# Build artifacts. APKs are produced on demand, not tracked.
+/dist/

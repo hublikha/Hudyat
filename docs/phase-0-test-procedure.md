@@ -29,8 +29,38 @@ Step 4 is not a formality. It is the control for the whole test — without it, 
 pass could be an accidental Internet round trip, which is precisely the silent
 fallback the master rules forbid.
 
-The app must be installed **before** WAN goes off. Metro cannot serve JS over a
-disabled network, so build a release-style dev build or keep the bundle local.
+The app must be installed **before** WAN goes off — see below.
+
+## Installing the test build
+
+Use a **release** APK, not a debug build. A debug build loads its JavaScript
+from the Metro dev server, so it cannot start with WAN unavailable — which would
+fail the test for a reason that has nothing to do with the transport. The release
+APK embeds the bundle and needs no network and no PC.
+
+Build it:
+
+```bash
+./apps/mobile/android/gradlew -p apps/mobile/android assembleRelease
+```
+
+Output: `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`
+
+Install on each device by either route:
+
+- **By file** — copy the APK to the phone, open it, and allow installation from
+  unknown sources when prompted. No cable needed.
+- **By cable** — enable Developer Options and USB debugging on the phone, then
+  `adb install -r app-release.apk`.
+
+The APK is signed with the standard Android debug keystore. That is fine for
+sideloading onto test devices and is **not** suitable for distribution: the key
+is public and shared by every debug build on earth. A real signing key is a
+Phase 2 concern and is out of scope here.
+
+Both devices must run the **same build**. A protocol change between them would
+show up as a decode rejection, which is a real finding but not the one this
+matrix is testing for.
 
 ## Test matrix
 

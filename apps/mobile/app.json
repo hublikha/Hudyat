@@ -9,7 +9,6 @@
       "package": "ph.hublikha.rcn",
       "compileSdkVersion": 36,
       "targetSdkVersion": 36
-    },
-    "plugins": ["expo-dev-client"]
+    }
   }
 }
