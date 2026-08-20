@@ -1,0 +1,19 @@
+{
+  "name": "@rcn/core",
+  "version": "0.1.0",
+  "description": "RCN core - persistence, domain state, and message lifecycle",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test \"dist/**/*.test.js\"",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@rcn/protocol": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^5.9.3"
+  }
+}

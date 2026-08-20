@@ -8,8 +8,8 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "npm run test --workspace=@rcn/protocol",
-    "build": "npm run build --workspace=@rcn/protocol"
+    "test": "npm run test --workspace=@rcn/protocol && npm run test --workspace=@rcn/core",
+    "build": "npm run build --workspace=@rcn/protocol && npm run build --workspace=@rcn/core"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
