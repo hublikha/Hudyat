@@ -9,7 +9,7 @@ import type {
 } from '@rcn/protocol';
 import { TransportError } from '@rcn/protocol';
 
-import { fromBase64, toBase64 } from './base64';
+import { fromBase64, toBase64 } from '@rcn/protocol';
 
 interface NativeModule {
   start(deviceId: string, displayName: string): Promise<void>;

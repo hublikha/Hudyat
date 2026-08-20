@@ -1,0 +1,16 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'ph.hublikha.rcn.identity'
+version = '0.1.0'
+
+android {
+  namespace 'ph.hublikha.rcn.identity'
+  defaultConfig {
+    // Required by expo-module-gradle-plugin's publishing configuration.
+    versionCode 1
+    versionName '0.1.0'
+  }
+}
