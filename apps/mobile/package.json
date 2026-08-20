@@ -1,0 +1,30 @@
+{
+  "name": "@rcn/mobile",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "private": true,
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "prebuild": "expo prebuild --platform android"
+  },
+  "dependencies": {
+    "@rcn/protocol": "*",
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "expo": "~57.0.14",
+    "expo-crypto": "~15.0.7",
+    "expo-dev-client": "~6.0.14",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.2"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~5.9.3"
+  },
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "../../modules"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "Hudyat RCN (Phase 0)",
+    "slug": "hudyat-rcn",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "newArchEnabled": true,
+    "android": {
+      "package": "ph.hublikha.rcn",
+      "compileSdkVersion": 36,
+      "targetSdkVersion": 36
+    },
+    "plugins": ["expo-dev-client"]
+  }
+}
