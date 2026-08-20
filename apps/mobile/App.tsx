@@ -78,7 +78,23 @@ function DeveloperScreen() {
         append(`undiscovered ${short(lost)}`);
       },
       peerConnectionChanged: (id, connection) => {
-        setPeers((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id]!, connection } } : prev));
+        setPeers((prev) => {
+          const existing = prev[id];
+          if (existing) {
+            return { ...prev, [id]: { ...existing, connection } };
+          }
+          // The peer can be gone from the map already: discovery drops it, then
+          // the connection completes. An open connection is stronger evidence of
+          // reachability than discovery ever was, so re-add rather than let a
+          // working link stay invisible with no way to use it.
+          if (connection === 'CONNECTED' || connection === 'CONNECTING') {
+            return {
+              ...prev,
+              [id]: { deviceId: id, endpointId: '', displayName: '', connection },
+            };
+          }
+          return prev;
+        });
         append(`${short(id)} ${connection}`);
       },
       frameReceived: (from, frame) => {
