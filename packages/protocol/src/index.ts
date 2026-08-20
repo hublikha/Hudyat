@@ -4,3 +4,4 @@ export * from './envelope';
 export * from './utf8';
 export * from './codec';
 export * from './transport';
+export * from './crypto';
