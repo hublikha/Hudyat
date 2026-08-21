@@ -21,6 +21,18 @@ export const PacketType = {
    * other message - never a separate, weaker channel.
    */
   SAFETY: 'SAFE',
+
+  /**
+   * Pairing key exchange.
+   *
+   * This is the one packet whose payload is **not** encrypted, because it is
+   * what establishes the key. It is therefore also the only packet accepted
+   * from a device that is not yet trusted, and that exception is exactly why it
+   * is narrow: it is honoured only while the user has a pairing open, and what
+   * it carries is checked against the QR fingerprint and then against six
+   * digits read aloud before any trust is written.
+   */
+  PAIR_HELLO: 'HELLO',
 } as const;
 
 export type PacketType = (typeof PacketType)[keyof typeof PacketType];

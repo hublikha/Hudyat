@@ -3,6 +3,7 @@ import {
   PendingVerification,
   confirmPairing,
   currentFamily,
+  derivePairingSessionKey,
   decodeInvitation,
   insertFamily,
   addMembership,
@@ -80,7 +81,17 @@ function Router() {
   }
 
   const hasFamily = app.family !== null;
-  const current: Screen = screen ?? (hasFamily ? { name: 'HOME' } : { name: 'ONBOARDING' });
+
+  // Digits arriving is a fact from the other phone, not a navigation choice, so
+  // it takes precedence over whatever screen is showing.
+  const current: Screen =
+    app.pairingReady !== null
+      ? {
+          name: 'VERIFY',
+          pending: app.pairingReady.pending,
+          invitation: app.pairingReady.invitation,
+        }
+      : (screen ?? (hasFamily ? { name: 'HOME' } : { name: 'ONBOARDING' }));
 
   /**
    * Handles a scanned invitation.
@@ -95,8 +106,8 @@ function Router() {
     try {
       const invitation = decodeInvitation(payload);
       if (Date.now() > invitation.expiresAt) {
-        // Advisory only: the issuer decides for real when the join is attempted.
-        // Checking here saves the user a round trip, and cannot extend the code.
+        // Advisory only: the issuer decides for real when the join is
+        // attempted. Checking here saves a round trip and cannot extend a code.
         throw new Error('This code has expired. Ask for a new one.');
       }
       if (app.db !== null && currentFamily(app.db) === null) {
@@ -116,9 +127,21 @@ function Router() {
         }
         app.refresh();
       }
+      if (app.engine === null || app.self === null) {
+        throw new Error('This phone is not ready to pair yet.');
+      }
+      app.engine.beginPairing({
+        role: 'JOINER',
+        invitation,
+        self: {
+          deviceId: app.self.deviceId,
+          identityKey: app.self.identityKey,
+          agreementKey: app.self.agreementPublicKey,
+        },
+        displayName: app.self.deviceId.slice(0, 8),
+      });
       setPairError(
-        'Code accepted. Bring both phones together and keep this screen open — the six digits ' +
-          'appear once the phones connect.',
+        'Waiting for the other phone. Keep both together — the six digits appear once they connect.',
       );
       home();
     } catch (error) {
@@ -137,20 +160,34 @@ function Router() {
         joiner: pending.peer.deviceId,
         now: Date.now(),
       });
-      await withAgreementPrivateKey(app.db, app.self.deviceId, (priv) => {
-        confirmPairing({
-          db: app.db!,
-          pending,
-          invitation,
-          self: { deviceId: app.self!.deviceId, agreementPrivateKey: priv },
-          now: Date.now(),
-          // Sealing happens synchronously inside the transaction, so the key is
-          // pre-sealed before entering it.
-          seal: (b) => b,
-          userConfirmed: true,
-        });
+      // Derive, seal, then write. Sealing is a call into the Keystore and is
+      // asynchronous; the trust write is a synchronous transaction. Doing them
+      // in that order is what keeps the raw session key out of the database.
+      const sessionKey = await withAgreementPrivateKey(
+        app.db,
+        app.self.deviceId,
+        (priv) =>
+          derivePairingSessionKey({
+            pending,
+            invitation,
+            self: { deviceId: app.self!.deviceId, agreementPrivateKey: priv },
+          }),
+      );
+      const sessionKeySealed = await sealBytes(sessionKey);
+      sessionKey.fill(0);
+
+      confirmPairing({
+        db: app.db,
+        pending,
+        invitation,
+        self: { deviceId: app.self.deviceId },
+        now: Date.now(),
+        sessionKeySealed,
+        userConfirmed: true,
       });
+      app.clearPairing();
       app.refresh();
+      setPairError(null);
       home();
     } catch (error) {
       setPairError((error as Error).message);
@@ -174,7 +211,31 @@ function Router() {
       );
 
     case 'SHOW_INVITE':
-      return <ShowInvitation app={app} onBack={home} />;
+      return (
+        <ShowInvitation
+          app={app}
+          onInvitation={(invitation) => {
+            if (app.engine === null || app.self === null) return;
+            // The window opens when the code is shown and closes when the user
+            // leaves, so the untrusted-HELLO exception exists only while a
+            // person is actually standing there pairing a phone.
+            app.engine.beginPairing({
+              role: 'INVITER',
+              invitation,
+              self: {
+                deviceId: app.self.deviceId,
+                identityKey: app.self.identityKey,
+                agreementKey: app.self.agreementPublicKey,
+              },
+              displayName: app.self.deviceId.slice(0, 8),
+            });
+          }}
+          onBack={() => {
+            app.clearPairing();
+            home();
+          }}
+        />
+      );
 
     case 'SCAN_INVITE':
       return <ScanInvitation app={app} onScanned={onScanned} onBack={home} />;
@@ -187,6 +248,7 @@ function Router() {
           busy={busy}
           onConfirm={() => void confirm(current.pending, current.invitation)}
           onReject={() => {
+            app.clearPairing();
             setPairError('Pairing cancelled. Nothing was trusted.');
             home();
           }}
@@ -214,6 +276,12 @@ function Router() {
     default:
       return (
         <>
+          {app.pairingError !== null && (
+            <View style={{ padding: 16, backgroundColor: colors.surfaceRaised }}>
+              <Text style={{ color: colors.rejected }}>{app.pairingError}</Text>
+              <Button label="Dismiss" variant="quiet" onPress={app.clearPairing} />
+            </View>
+          )}
           {pairError !== null && (
             <View style={{ padding: 16, backgroundColor: colors.surfaceRaised }}>
               <Text style={{ color: colors.queued }}>{pairError}</Text>

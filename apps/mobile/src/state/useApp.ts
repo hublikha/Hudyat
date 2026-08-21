@@ -1,3 +1,4 @@
+import type { Invitation, PendingVerification } from '@rcn/core';
 import {
   Db,
   DeviceRow,
@@ -28,6 +29,11 @@ export type Startup =
   | { phase: 'READY' }
   | { phase: 'FAILED'; error: string };
 
+export interface PairingReady {
+  pending: PendingVerification;
+  invitation: Invitation;
+}
+
 export interface AppState {
   startup: Startup;
   db: Db | null;
@@ -37,6 +43,9 @@ export interface AppState {
   peers: PeerView[];
   transport: string;
   errors: string[];
+  pairingReady: PairingReady | null;
+  pairingError: string | null;
+  clearPairing: () => void;
   refresh: () => void;
   version: number;
 }
@@ -48,12 +57,20 @@ export function useApp(): AppState {
   const [peers, setPeers] = useState<PeerView[]>([]);
   const [transport, setTransport] = useState('STOPPED');
   const [errors, setErrors] = useState<string[]>([]);
+  const [pairingReady, setPairingReady] = useState<PairingReady | null>(null);
+  const [pairingError, setPairingError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
   const dbRef = useRef<Db | null>(null);
   const engineRef = useRef<Engine | null>(null);
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
+
+  const clearPairing = useCallback(() => {
+    setPairingReady(null);
+    setPairingError(null);
+    engineRef.current?.cancelPairing();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +91,13 @@ export function useApp(): AppState {
           if (event.type === 'peers') setPeers(event.peers);
           else if (event.type === 'transport') setTransport(event.state);
           else if (event.type === 'changed') refresh();
-          else if (event.type === 'error') {
+          else if (event.type === 'pairing-ready') {
+            setPairingReady({ pending: event.pending, invitation: event.invitation });
+            setPairingError(null);
+          } else if (event.type === 'pairing-failed') {
+            setPairingReady(null);
+            setPairingError(event.message);
+          } else if (event.type === 'error') {
             // Kept and shown rather than logged and lost. A message that was
             // rejected is something the user needs to be able to see.
             setErrors((prev) => [event.message, ...prev].slice(0, 20));
@@ -106,10 +129,25 @@ export function useApp(): AppState {
       peers,
       transport,
       errors,
+      pairingReady,
+      pairingError,
+      clearPairing,
       refresh,
       version,
     }),
-    [startup, self, family, peers, transport, errors, refresh, version],
+    [
+      startup,
+      self,
+      family,
+      peers,
+      transport,
+      errors,
+      pairingReady,
+      pairingError,
+      clearPairing,
+      refresh,
+      version,
+    ],
   );
 }
 

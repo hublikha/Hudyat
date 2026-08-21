@@ -252,14 +252,42 @@ export function prepareVerification(input: VerificationInput): PendingVerificati
   return { sas: shortAuthenticationString(transcript), transcript, peer: input.peer };
 }
 
+/**
+ * Derives the session key for a pairing, without writing anything.
+ *
+ * Separate from `confirmPairing` because sealing the key is an asynchronous
+ * call into the Keystore, while writing trust is a synchronous transaction. The
+ * caller derives here, seals, and then commits — so the key reaches the database
+ * already sealed rather than being stored raw for want of an `await`.
+ */
+export function derivePairingSessionKey(input: {
+  pending: PendingVerification;
+  invitation: Invitation;
+  self: { deviceId: DeviceId; agreementPrivateKey: Uint8Array };
+}): Uint8Array {
+  return deriveSessionKey({
+    ownAgreementPrivate: input.self.agreementPrivateKey,
+    peerAgreementPublic: input.pending.peer.agreementKey,
+    invitationNonce: fromBase64(input.invitation.nonce),
+    aDeviceId: input.self.deviceId,
+    bDeviceId: input.pending.peer.deviceId,
+  });
+}
+
 export interface ConfirmInput {
   db: Db;
   pending: PendingVerification;
   invitation: Invitation;
-  self: { deviceId: DeviceId; agreementPrivateKey: Uint8Array };
+  self: { deviceId: DeviceId };
   now: number;
-  /** Seals the session key with the Keystore-held AES key. */
-  seal: (plaintext: Uint8Array) => Uint8Array;
+  /**
+   * The session key, already sealed by the caller under the Keystore key.
+   *
+   * Taking sealed bytes rather than a sealing function is deliberate: a
+   * synchronous callback cannot reach the Keystore, and the shape that "worked"
+   * for a sync signature was one that stored the key in the clear.
+   */
+  sessionKeySealed: Uint8Array;
   /** True only when the user confirmed the digits matched. */
   userConfirmed: boolean;
 }
@@ -288,13 +316,9 @@ export function confirmPairing(input: ConfirmInput): void {
       );
     }
 
-    const sessionKey = deriveSessionKey({
-      ownAgreementPrivate: input.self.agreementPrivateKey,
-      peerAgreementPublic: peer.agreementKey,
-      invitationNonce: fromBase64(input.invitation.nonce),
-      aDeviceId: input.self.deviceId,
-      bDeviceId: peer.deviceId,
-    });
+    if (input.sessionKeySealed.length === 0) {
+      throw new PairingError('the session key was not sealed', 'ERR_KEY_NOT_SEALED');
+    }
 
     if (!repo.getDevice(input.db, peer.deviceId)) {
       repo.insertDevice(input.db, {
@@ -310,7 +334,7 @@ export function confirmPairing(input: ConfirmInput): void {
     repo.upsertTrust(input.db, {
       device_id: peer.deviceId,
       family_id: input.invitation.familyId,
-      session_key_sealed: input.seal(sessionKey),
+      session_key_sealed: input.sessionKeySealed,
       sas: input.pending.sas,
       verified_at: input.now,
       status: 'ACTIVE',

@@ -14,6 +14,7 @@ import {
   PairingError,
   confirmPairing,
   createInvitation,
+  derivePairingSessionKey,
   decodeInvitation,
   encodeInvitation,
   prepareVerification,
@@ -31,8 +32,11 @@ function counterRandom(seed = 0): (n: number) => Uint8Array {
   return (n: number) => Uint8Array.from({ length: n }, () => (c = (c + 1) & 0xff));
 }
 
-/** Sealing is the Keystore's job on device; identity here keeps tests honest. */
-const seal = (b: Uint8Array) => b;
+/**
+ * Stands in for the Keystore. Tagged rather than identity so a test cannot pass
+ * while the real code stores an unsealed key.
+ */
+const seal = (b: Uint8Array) => Uint8Array.from([0xff, ...b]);
 
 let db: Db;
 
@@ -244,9 +248,15 @@ test('trust is written only after the user confirms', () => {
         db,
         pending,
         invitation: inv,
-        self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+        self: { deviceId: INVITER },
         now: NOW,
-        seal,
+        sessionKeySealed: seal(
+          derivePairingSessionKey({
+            pending,
+            invitation: inv,
+            self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+          }),
+        ),
         userConfirmed: false,
       }),
     /not confirmed/,
@@ -261,9 +271,15 @@ test('confirming writes trust and membership', () => {
     db,
     pending,
     invitation: inv,
-    self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+    self: { deviceId: INVITER },
     now: NOW,
-    seal,
+    sessionKeySealed: seal(
+      derivePairingSessionKey({
+        pending,
+        invitation: inv,
+        self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+      }),
+    ),
     userConfirmed: true,
   });
   const trust = repo.getActiveTrust(db, JOINER);
@@ -277,8 +293,16 @@ test('both sides derive the same session key through pairing', () => {
   const onInviter = prepareVerification({ invitation: inv, self: inviterSide, peer: joinerHello, role: 'INVITER' });
   confirmPairing({
     db, pending: onInviter, invitation: inv,
-    self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
-    now: NOW, seal, userConfirmed: true,
+    self: { deviceId: INVITER },
+    now: NOW,
+    sessionKeySealed: seal(
+      derivePairingSessionKey({
+        pending: onInviter,
+        invitation: inv,
+        self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+      }),
+    ),
+    userConfirmed: true,
   });
   const inviterKeyStored = repo.getActiveTrust(db, JOINER)?.session_key_sealed;
 
@@ -294,8 +318,16 @@ test('both sides derive the same session key through pairing', () => {
   const onJoiner = prepareVerification({ invitation: inv, self: selfSide, peer: inviterHello, role: 'JOINER' });
   confirmPairing({
     db: db2, pending: onJoiner, invitation: inv,
-    self: { deviceId: JOINER, agreementPrivateKey: joinerAgree.privateKey },
-    now: NOW, seal, userConfirmed: true,
+    self: { deviceId: JOINER },
+    now: NOW,
+    sessionKeySealed: seal(
+      derivePairingSessionKey({
+        pending: onJoiner,
+        invitation: inv,
+        self: { deviceId: JOINER, agreementPrivateKey: joinerAgree.privateKey },
+      }),
+    ),
+    userConfirmed: true,
   });
   const joinerKeyStored = repo.getActiveTrust(db2, INVITER)?.session_key_sealed;
 
@@ -308,8 +340,16 @@ test('a removed device loses trust and cannot be silently re-added', () => {
   const pending = prepareVerification({ invitation: inv, self: inviterSide, peer: joinerHello, role: 'INVITER' });
   confirmPairing({
     db, pending, invitation: inv,
-    self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
-    now: NOW, seal, userConfirmed: true,
+    self: { deviceId: INVITER },
+    now: NOW,
+    sessionKeySealed: seal(
+      derivePairingSessionKey({
+        pending: pending,
+        invitation: inv,
+        self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+      }),
+    ),
+    userConfirmed: true,
   });
 
   removeDevice({ db, deviceId: JOINER, now: NOW + 1, reason: 'lost phone' });
@@ -325,8 +365,16 @@ test('a removed device loses trust and cannot be silently re-added', () => {
     () =>
       confirmPairing({
         db, pending: retry, invitation: second,
-        self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
-        now: NOW + 3, seal, userConfirmed: true,
+        self: { deviceId: INVITER },
+        now: NOW + 3,
+        sessionKeySealed: seal(
+          derivePairingSessionKey({
+            pending: retry,
+            invitation: second,
+            self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+          }),
+        ),
+        userConfirmed: true,
       }),
     /removed from the family/,
   );
@@ -339,9 +387,71 @@ test('a failed confirmation leaves no partial trust behind', () => {
   assert.throws(() =>
     confirmPairing({
       db, pending, invitation: inv,
-      self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
-      now: NOW, seal, userConfirmed: true,
+      self: { deviceId: INVITER },
+      now: NOW,
+      sessionKeySealed: seal(
+        derivePairingSessionKey({
+          pending: pending,
+          invitation: inv,
+          self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+        }),
+      ),
+      userConfirmed: true,
     }),
   );
   assert.equal(repo.getDevice(db, JOINER), undefined, 'the device row must not survive the rollback');
+});
+
+test('the stored session key is the sealed form, never the raw key', () => {
+  const inv = invite();
+  const pending = prepareVerification({
+    invitation: inv,
+    self: inviterSide,
+    peer: joinerHello,
+    role: 'INVITER',
+  });
+  const raw = derivePairingSessionKey({
+    pending,
+    invitation: inv,
+    self: { deviceId: INVITER, agreementPrivateKey: inviterAgree.privateKey },
+  });
+  confirmPairing({
+    db,
+    pending,
+    invitation: inv,
+    self: { deviceId: INVITER },
+    now: NOW,
+    sessionKeySealed: seal(raw),
+    userConfirmed: true,
+  });
+
+  const stored = repo.getActiveTrust(db, JOINER)?.session_key_sealed;
+  // A raw key in the database means anyone who can read the file can read the
+  // family's messages. The first version of this stored exactly that, because
+  // sealing is async and the signature only accepted a synchronous callback.
+  assert.notDeepEqual(stored, raw, 'the raw session key must not reach the database');
+  assert.deepEqual(stored, seal(raw));
+});
+
+test('confirming refuses an empty sealed key', () => {
+  const inv = invite();
+  const pending = prepareVerification({
+    invitation: inv,
+    self: inviterSide,
+    peer: joinerHello,
+    role: 'INVITER',
+  });
+  assert.throws(
+    () =>
+      confirmPairing({
+        db,
+        pending,
+        invitation: inv,
+        self: { deviceId: INVITER },
+        now: NOW,
+        sessionKeySealed: new Uint8Array(0),
+        userConfirmed: true,
+      }),
+    /not sealed/,
+  );
 });

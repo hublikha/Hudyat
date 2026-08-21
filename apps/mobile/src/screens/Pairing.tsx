@@ -15,7 +15,11 @@ import { colors, styles } from '../ui/theme';
  * The code expires and can be used once. Both are enforced on this device, the
  * issuer, because a joining phone's clock may be wrong or attacker-controlled.
  */
-export function ShowInvitation(props: { app: AppState; onBack: () => void }) {
+export function ShowInvitation(props: {
+  app: AppState;
+  onBack: () => void;
+  onInvitation: (invitation: ReturnType<typeof createInvitation>) => void;
+}) {
   const { app } = props;
   const [payload, setPayload] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState(0);
@@ -37,6 +41,7 @@ export function ShowInvitation(props: { app: AppState; onBack: () => void }) {
       setPayload(encodeInvitation(invitation));
       setExpiresAt(invitation.expiresAt);
       setError(null);
+      props.onInvitation(invitation);
     } catch (e) {
       setError((e as Error).message);
     }

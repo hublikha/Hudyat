@@ -1,3 +1,4 @@
+import type { Invitation, PairingRole, PendingVerification } from '@rcn/core';
 import {
   Db,
   acceptInbound,
@@ -36,6 +37,14 @@ import {
 import { NearbyTransport } from '../../../../modules/rcn-transport';
 
 import { randomBytes, unsealBytes } from './identity';
+import {
+  PairingSession,
+  acceptHello,
+  configurePairingRandom,
+  encodeHello,
+  parseHello,
+  sessionExpired,
+} from './pairingSession';
 
 /**
  * Binds transport, cryptography and domain together.
@@ -56,7 +65,10 @@ export type EngineEvent =
   | { type: 'transport'; state: TransportState; detail?: string }
   | { type: 'peers'; peers: PeerView[] }
   | { type: 'changed' }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  /** The peer's keys arrived and the digits are ready to compare. */
+  | { type: 'pairing-ready'; pending: PendingVerification; invitation: Invitation }
+  | { type: 'pairing-failed'; message: string };
 
 export interface PeerView {
   readonly deviceId: DeviceId;
@@ -79,9 +91,76 @@ export class Engine {
   readonly #reachable = new Map<DeviceId, Peer>();
   #self: DeviceId | null = null;
   #timer: ReturnType<typeof setInterval> | null = null;
+  #pairing: PairingSession | null = null;
 
   constructor(db: Db) {
     this.#db = db;
+    configurePairingRandom(randomBytes);
+  }
+
+  /**
+   * Opens a pairing window.
+   *
+   * Nothing accepts an unauthenticated HELLO unless one of these is open, so the
+   * exception that pairing needs cannot be reached by a device that merely
+   * appears on the network. The window closes on success, on cancellation, or
+   * on timeout.
+   */
+  beginPairing(input: {
+    role: PairingRole;
+    invitation: Invitation;
+    self: { deviceId: DeviceId; identityKey: Uint8Array; agreementKey: Uint8Array };
+    displayName: string;
+  }): void {
+    this.#pairing = {
+      role: input.role,
+      invitation: input.invitation,
+      self: input.self,
+      displayName: input.displayName,
+      pending: null,
+      helloSent: false,
+      startedAt: Date.now(),
+    };
+    void this.#offerHello();
+  }
+
+  cancelPairing(): void {
+    this.#pairing = null;
+  }
+
+  get pairingOpen(): boolean {
+    return this.#pairing !== null && !sessionExpired(this.#pairing, Date.now());
+  }
+
+  /**
+   * Sends our HELLO to the other side of the pairing.
+   *
+   * The joiner sends first and includes the invitation nonce, which is how the
+   * inviter knows which code is being answered. The inviter replies only after
+   * a valid HELLO arrives, so it never broadcasts its keys to whoever asks.
+   */
+  async #offerHello(): Promise<void> {
+    const session = this.#pairing;
+    if (session === null || session.helloSent) return;
+    if (session.role !== 'JOINER') return;
+
+    const target = session.invitation.inviter;
+    if (!this.#reachable.has(target)) return;
+
+    try {
+      await this.#transport.send(
+        target,
+        encodeHello({
+          self: session.self,
+          displayName: session.displayName,
+          to: target,
+          nonce: session.invitation.nonce,
+        }),
+      );
+      session.helloSent = true;
+    } catch {
+      // Retried when the peer next connects; the pairing window is still open.
+    }
   }
 
   subscribe(listener: Listener): () => void {
@@ -152,6 +231,7 @@ export class Engine {
         this.#emitPeers();
         if (state === 'CONNECTED') {
           void this.pump();
+          void this.#offerHello();
         }
       },
       frameReceived: (from, frame) => {
@@ -316,6 +396,14 @@ export class Engine {
     try {
       const envelope = decodeEnvelope(frame);
 
+      if (envelope.type === PacketType.PAIR_HELLO) {
+        // The one packet accepted from an untrusted device, and only while the
+        // user has a pairing open. Its payload is plaintext by necessity: it is
+        // the key exchange. Nothing is trusted as a result of it.
+        this.#onHello(envelope, from);
+        return;
+      }
+
       // Trust is checked before decryption is attempted, so a removed or
       // unknown device's traffic never reaches the cipher.
       const trust = getActiveTrust(this.#db, envelope.from);
@@ -424,6 +512,54 @@ export class Engine {
         message: `Rejected a malformed or unauthenticated message.`,
       });
       void error;
+    }
+  }
+
+  /**
+   * Handles a pairing HELLO.
+   *
+   * Every rejection here is silent to the peer: an attacker probing which
+   * invitation is open, or which device is expected, learns nothing from the
+   * difference between "no pairing open" and "wrong nonce".
+   */
+  #onHello(envelope: Envelope, from: DeviceId): void {
+    const session = this.#pairing;
+    if (session === null) return;
+    if (sessionExpired(session, Date.now())) {
+      this.#pairing = null;
+      this.#emit({ type: 'pairing-failed', message: 'The pairing timed out. Try again.' });
+      return;
+    }
+    if (envelope.from !== from) return;
+
+    try {
+      const hello = parseHello(envelope.payload);
+      const pending = acceptHello(session, hello);
+      session.pending = pending;
+
+      if (session.role === 'INVITER' && !session.helloSent) {
+        // Reply only now, to a device that answered our own code.
+        session.helloSent = true;
+        void this.#transport
+          .send(
+            hello.deviceId,
+            encodeHello({
+              self: session.self,
+              displayName: session.displayName,
+              to: hello.deviceId,
+            }),
+          )
+          .catch(() => {
+            this.#emit({
+              type: 'pairing-failed',
+              message: 'Lost contact with the other phone during pairing.',
+            });
+          });
+      }
+
+      this.#emit({ type: 'pairing-ready', pending, invitation: session.invitation });
+    } catch (error) {
+      this.#emit({ type: 'pairing-failed', message: (error as Error).message });
     }
   }
 
