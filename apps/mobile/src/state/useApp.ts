@@ -66,6 +66,21 @@ export function useApp(): AppState {
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
+  // Re-read the family on every refresh, not only at startup.
+  //
+  // Creating or joining a family writes a row and calls refresh, but the state
+  // was only ever set during startup, so `family` stayed null and the home
+  // screen fell back to its placeholder title. It looked correct while
+  // `family_id` was in fact missing for every send.
+  useEffect(() => {
+    if (dbRef.current === null) return;
+    const current = currentFamily(dbRef.current) ?? null;
+    setFamily((prev) => {
+      if (prev?.family_id === current?.family_id) return prev;
+      return current;
+    });
+  }, [version, startup]);
+
   const clearPairing = useCallback(() => {
     setPairingReady(null);
     setPairingError(null);

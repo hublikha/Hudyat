@@ -5,6 +5,7 @@ import { DecodeError, decodeEnvelope, encodeEnvelope } from './codec';
 import { PROTOCOL_VERSION, PacketType } from './constants';
 import { Envelope, EnvelopeValidationError } from './envelope';
 import { DEVICE_A, DEVICE_B, MESSAGE_1, PING_A_TO_B, PING_A_TO_B_CANONICAL } from './fixtures';
+import { utf8Encode } from './utf8';
 
 const decoder = new TextDecoder();
 
@@ -125,4 +126,25 @@ test('encodes and decodes with no platform TextEncoder present', () => {
     globalThis.TextEncoder = savedEncoder;
     globalThis.TextDecoder = savedDecoder;
   }
+});
+
+test('every declared packet type survives a round trip', () => {
+  // The gap that let a broken type check ship: every other test in this file
+  // uses the Phase 0 fixture, whose type name and value are identical, so none
+  // of them exercised a type whose key differs from its value.
+  for (const type of Object.values(PacketType)) {
+    const envelope: Envelope = { ...PING_A_TO_B, type };
+    const decoded = decodeEnvelope(encodeEnvelope(envelope));
+    assert.equal(decoded.type, type, `packet type ${type} must round trip`);
+  }
+});
+
+test('an undeclared packet type is still rejected', () => {
+  const bytes = utf8Encode(
+    JSON.stringify({ ...PING_A_TO_B, type: 'NOT_A_TYPE' }),
+  );
+  // Validation errors propagate as EnvelopeValidationError rather than being
+  // wrapped, so the caller can tell "this field is wrong" from "these bytes are
+  // not an envelope at all".
+  assert.throws(() => decodeEnvelope(bytes), EnvelopeValidationError);
 });

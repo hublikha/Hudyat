@@ -37,8 +37,19 @@ export class EnvelopeValidationError extends Error {
   }
 }
 
+/**
+ * Membership is tested against the *values*, not the keys.
+ *
+ * `value in PacketType` checks keys, and it passed for the Phase 0 types only
+ * because each key happened to equal its own value. The first type whose key
+ * differed - MESSAGE carrying 'MSG' - was rejected as unknown, which would have
+ * failed every real family message on decode while every existing test kept
+ * passing, because they all used the Phase 0 fixture.
+ */
+const PACKET_TYPE_VALUES: ReadonlySet<string> = new Set(Object.values(PacketType));
+
 function isPacketType(value: unknown): value is PacketType {
-  return typeof value === 'string' && value in PacketType;
+  return typeof value === 'string' && PACKET_TYPE_VALUES.has(value);
 }
 
 function isNonNegativeSafeInt(value: unknown): value is number {

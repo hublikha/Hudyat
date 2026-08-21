@@ -239,7 +239,8 @@ export function SelfTest(props: { app: AppState; onBack: () => void }) {
     });
 
     await check('Sequence survives restart', () => {
-      if (app.db === null || app.self === null) throw new Error('not ready');
+      if (app.db === null) throw new Error('the database is not open');
+      if (app.self === null) throw new Error('this device has no identity yet');
       const a = nextLocalSeq(app.db, app.self.deviceId);
       const b = nextLocalSeq(app.db, app.self.deviceId);
       if (b !== a + 1) throw new Error(`counter did not advance: ${a} then ${b}`);
@@ -256,7 +257,10 @@ export function SelfTest(props: { app: AppState; onBack: () => void }) {
     });
 
     await check('Untrusted sender is refused', () => {
-      if (app.db === null || app.self === null || app.family === null) throw new Error('not ready');
+      // Name the missing piece. "not ready" sent me looking at the wrong layer.
+      if (app.db === null) throw new Error('the database is not open');
+      if (app.self === null) throw new Error('this device has no identity yet');
+      if (app.family === null) throw new Error('no family exists on this device yet');
       const outcome = acceptInbound({
         db: app.db,
         messageId: `selftest-untrusted-${Date.now()}`,
